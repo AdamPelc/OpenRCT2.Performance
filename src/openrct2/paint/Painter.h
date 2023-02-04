@@ -42,6 +42,9 @@ namespace OpenRCT2
             time_t _lastSecond = 0;
             int32_t _currentFPS = 0;
             int32_t _frames = 0;
+            size_t _iterationsCounter = 1;
+            size_t _sumFPS = 0;
+            int32_t _averageFPS = 0;
 
         public:
             explicit Painter(const std::shared_ptr<Ui::IUiContext>& uiContext);

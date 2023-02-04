@@ -106,13 +106,24 @@ void Painter::PaintFPS(DrawPixelInfo* dpi)
 
     MeasureFPS();
 
+    // CURRENT FPS
     char buffer[64]{};
     FormatStringToBuffer(buffer, sizeof(buffer), "{OUTLINE}{WHITE}{INT32}", _currentFPS);
 
-    // Draw Text
+    // Draw Current FPS
     int32_t stringWidth = GfxGetStringWidth(buffer, FontStyle::Medium);
     screenCoords.x = screenCoords.x - (stringWidth / 2);
     GfxDrawString(dpi, screenCoords, buffer);
+
+    // AVERAGE FPS
+    char buffer_avg[64]{};
+    FormatStringToBuffer(buffer_avg, sizeof(buffer_avg), "{OUTLINE}{RED}{INT32}", _averageFPS);
+
+    // Draw Average FPS
+    stringWidth = GfxGetStringWidth(buffer_avg, FontStyle::Medium);
+    screenCoords.y += 12;
+    screenCoords.x = screenCoords.x - (stringWidth / 2);
+    GfxDrawString(dpi, screenCoords, buffer_avg);
 
     // Make area dirty so the text doesn't get drawn over the last
     GfxSetDirtyBlocks({ { screenCoords - ScreenCoordsXY{ 16, 4 } }, { dpi->lastStringPos.x + 16, 16 } });
@@ -125,6 +136,13 @@ void Painter::MeasureFPS()
     auto currentTime = time(nullptr);
     if (currentTime != _lastSecond)
     {
+        // Measure AVG FPS
+        if (0 != _lastSecond) {
+            _sumFPS += _frames;
+            _averageFPS = _sumFPS / _iterationsCounter;
+            _iterationsCounter++;
+        }
+
         _currentFPS = _frames;
         _frames = 0;
     }
