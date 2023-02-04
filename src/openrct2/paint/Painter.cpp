@@ -105,14 +105,14 @@ void Painter::PaintFPS(DrawPixelInfo* dpi)
     ScreenCoordsXY screenCoords(_uiContext->GetWidth() / 2, 2);
 
     MeasureFPS();
-
+    const auto base_x = screenCoords.x;
     // CURRENT FPS
     char buffer[64]{};
     FormatStringToBuffer(buffer, sizeof(buffer), "{OUTLINE}{WHITE}{INT32}", _currentFPS);
 
     // Draw Current FPS
     int32_t stringWidth = GfxGetStringWidth(buffer, FontStyle::Medium);
-    screenCoords.x = screenCoords.x - (stringWidth / 2);
+    screenCoords.x = base_x - (stringWidth / 2);
     GfxDrawString(dpi, screenCoords, buffer);
 
     // AVERAGE FPS
@@ -122,8 +122,18 @@ void Painter::PaintFPS(DrawPixelInfo* dpi)
     // Draw Average FPS
     stringWidth = GfxGetStringWidth(buffer_avg, FontStyle::Medium);
     screenCoords.y += 12;
-    screenCoords.x = screenCoords.x - (stringWidth / 2);
+    screenCoords.x = base_x - (stringWidth / 2);
     GfxDrawString(dpi, screenCoords, buffer_avg);
+
+    // Print Interation Couter
+    char buffer_time[64]{};
+    FormatStringToBuffer(buffer_time, sizeof(buffer_time), "{OUTLINE}{TOPAZ}{INT32}", _iterationsCounter);
+
+    // Draw interations counter
+    stringWidth = GfxGetStringWidth(buffer_avg, FontStyle::Medium);
+    screenCoords.y += 12;
+    screenCoords.x = base_x - (stringWidth / 2);
+    GfxDrawString(dpi, screenCoords, buffer_time);
 
     // Make area dirty so the text doesn't get drawn over the last
     GfxSetDirtyBlocks({ { screenCoords - ScreenCoordsXY{ 16, 4 } }, { dpi->lastStringPos.x + 16, 16 } });
