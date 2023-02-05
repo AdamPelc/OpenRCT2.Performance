@@ -16,6 +16,7 @@
 #include "../config/Config.h"
 #include "../core/Guard.hpp"
 #include "../core/JobPool.h"
+#include "../core/JobPoolPerf.h"
 #include "../drawing/Drawing.h"
 #include "../drawing/IDrawingEngine.h"
 #include "../entity/EntityList.h"
@@ -62,7 +63,7 @@ uint8_t gShowConstructionRightsRefCount;
 static std::list<Viewport> _viewports;
 Viewport* g_music_tracking_viewport;
 
-static std::unique_ptr<JobPool> _paintJobs;
+static std::unique_ptr<JobPoolPerf> _paintJobs;
 static std::vector<PaintSession*> _paintColumns;
 
 ScreenCoordsXY gSavedView;
@@ -1008,7 +1009,7 @@ void ViewportPaint(
     bool useMultithreading = gConfigGeneral.MultiThreading;
     if (useMultithreading && _paintJobs == nullptr)
     {
-        _paintJobs = std::make_unique<JobPool>();
+        _paintJobs = std::make_unique<JobPoolPerf>();
     }
     else if (useMultithreading == false && _paintJobs != nullptr)
     {
