@@ -20,11 +20,8 @@ JobPoolPerf::TaskData::TaskData(std::function<void()> workFn)
 
 JobPoolPerf::JobPoolPerf(size_t maxThreads)
     : _threadsAmount{std::min<std::size_t>(maxThreads, std::thread::hardware_concurrency())}
-    , _processing(_threadsAmount)
-    , _pendingsQues(_threadsAmount)
-    , _completedQues(_threadsAmount)
-    , _condsPending(_threadsAmount)
-    , _condsComplete(_threadsAmount)
+    , _tasksQueues(_threadsAmount)
+    , _condsLaunchThread(_threadsAmount)
     , _mutexes(_threadsAmount)
 {
     for (size_t threadIdx = 0; threadIdx < _threadsAmount; threadIdx++)
@@ -40,7 +37,7 @@ JobPoolPerf::~JobPoolPerf()
     for (auto threadIdx = 0U; threadIdx != _threadsAmount; ++threadIdx)
     {
         unique_lock lock(_mutexes.at(threadIdx));
-        _condsPending.at(threadIdx).notify_all();
+        _condsLaunchThread.at(threadIdx).notify_one();
     }
 
     for (auto& th : _threads)
@@ -52,43 +49,26 @@ JobPoolPerf::~JobPoolPerf()
 
 void JobPoolPerf::AddTask(std::function<void()> workFn)
 {
-    if(_threadIdx == _threadsAmount)
+    if(_tasksQueuesIdx == _threadsAmount)
     {
-        _threadIdx = 0;
+        _tasksQueuesIdx = 0;
     }
+    _tasksQueues.at(_tasksQueuesIdx).emplace_back(std::move(workFn));
+    _tasksLeft++;
 
-    std::scoped_lock lock(_mutexes.at(_threadIdx));
-    _pendingsQues.at(_threadIdx).emplace_back(std::move(workFn));
-    _condsPending.at(_threadIdx).notify_one();
-
-    _threadIdx++;
+    _tasksQueuesIdx++;
 }
 
 void JobPoolPerf::Join()
 {
-    for (auto threadIdx = 0U; threadIdx != _threadsAmount; ++ threadIdx)
+    // Start threads
+    for (auto threadIdx = 0U; threadIdx < _threadsAmount; ++threadIdx)
     {
-        unique_lock lock(_mutexes.at(threadIdx));
-        while (true)
-        {
-            // Wait for the queue to become empty or having completed tasks.
-            _condsComplete.at(threadIdx).wait(lock,
-              [this, threadIdx]() { return (_pendingsQues.at(threadIdx).empty() && _processing.at(threadIdx) == 0) || !_completedQues.at(threadIdx).empty(); });
-
-            // Dispatch all completion callbacks if there are any.
-            while (!_completedQues.at(threadIdx).empty())
-            {
-                auto taskData = _completedQues.at(threadIdx).front();
-                _completedQues.at(threadIdx).pop_front();
-            }
-
-            // If everything is empty and no more work has to be done we can stop waiting.
-            if (_completedQues.at(threadIdx).empty() && _pendingsQues.at(threadIdx).empty() && _processing.at(threadIdx) == 0)
-            {
-                break;
-            }
-        }
+        std::scoped_lock lock(_mutexes.at(threadIdx));
+        _condsLaunchThread.at(threadIdx).notify_one();
     }
+
+    while (0 != _tasksLeft) {}
 }
 
 void JobPoolPerf::ProcessQueue(std::size_t threadIdx)
@@ -96,26 +76,15 @@ void JobPoolPerf::ProcessQueue(std::size_t threadIdx)
     unique_lock lock(_mutexes.at(threadIdx));
     do
     {
-        // Wait for work or cancellation.
-        _condsPending.at(threadIdx).wait(lock, [this, threadIdx]() { return _shouldStop || !_pendingsQues.at(threadIdx).empty(); });
-
-        if (!_pendingsQues.at(threadIdx).empty())
+        _condsLaunchThread.at(threadIdx).wait(lock);
+        while (!_tasksQueues.at(threadIdx).empty())
         {
-            _processing.at(threadIdx)++;
-
-            auto taskData = _pendingsQues.at(threadIdx).front();
-            _pendingsQues.at(threadIdx).pop_front();
-
-            lock.unlock();
+            auto taskData = _tasksQueues.at(threadIdx).front();
+            _tasksQueues.at(threadIdx).pop_front();
 
             taskData.WorkFn();
-
-            lock.lock();
-
-            _completedQues.at(threadIdx).push_back(std::move(taskData));
-
-            _processing.at(threadIdx)--;
-            _condsComplete.at(threadIdx).notify_one();
+            _tasksLeft--;
         }
+        _threadCompleted.notify_one();
     } while (!_shouldStop);
 }
