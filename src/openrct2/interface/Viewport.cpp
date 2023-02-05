@@ -1059,7 +1059,10 @@ void ViewportPaint(
         if (useMultithreading)
         {
             _paintJobs->AddTask(
-                [session, recorded_sessions, index]() -> void { ViewportFillColumn(*session, recorded_sessions, index); });
+                [session, recorded_sessions, index]() -> bool {
+                    ViewportFillColumn(*session, recorded_sessions, index);
+                    return false;
+                });
         }
         else
         {
@@ -1077,13 +1080,17 @@ void ViewportPaint(
     {
         if (useParallelDrawing)
         {
-            _paintJobs->AddTask([session]() -> void { ViewportPaintColumn(*session); });
+            _paintJobs->AddTask([session]() -> bool {
+                ViewportPaintColumn(*session);
+                return false;
+            });
         }
         else
         {
             ViewportPaintColumn(*session);
         }
     }
+
     if (useParallelDrawing)
     {
         _paintJobs->Join();

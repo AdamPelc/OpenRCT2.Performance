@@ -22,23 +22,28 @@ class JobPoolPerf
 private:
     struct TaskData
     {
-        const std::function<void()> WorkFn;
+        enum class Type {
+            Task,
+            Termination,
+        };
+        const std::function<bool()> WorkFn;
+        Type type;
 
-        explicit TaskData(std::function<void()> workFn);
+        explicit TaskData(std::function<bool()> workFn, Type type);
+    };
+
+    struct ThreadQueue
+    {
+        // Queue of tasks
+        std::deque<TaskData> queue;
+        std::atomic<bool> launchThread{false};
+        std::atomic<bool> completedThread{false};
     };
     std::size_t _threadsAmount{};
-    std::atomic_bool _shouldStop = { false };
     std::vector<std::thread> _threads;
+    std::vector<ThreadQueue> _threadsQueues;
 
     std::size_t _tasksQueuesIdx{0};
-    std::vector<std::deque<TaskData>> _tasksQueues;
-    std::atomic<std::size_t> _tasksLeft{0};
-
-    // TODO: This probably might be single std::condition_variable
-    std::vector<std::condition_variable> _condsLaunchThread;
-    std::condition_variable _threadCompleted;
-
-    std::vector<std::mutex> _mutexes;
 
     using unique_lock = std::unique_lock<std::mutex>;
 
@@ -46,7 +51,8 @@ public:
     explicit JobPoolPerf(size_t maxThreads = 255);
     ~JobPoolPerf();
 
-    void AddTask(std::function<void()> workFn);
+    void AddTask(std::function<bool()> workFn);
+    void AddTerminations();
     void Join();
 
 private:

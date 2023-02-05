@@ -13,16 +13,15 @@
 #include <cassert>
 #include <utility>
 
-JobPoolPerf::TaskData::TaskData(std::function<void()> workFn)
+JobPoolPerf::TaskData::TaskData(std::function<bool()> workFn, Type type)
     : WorkFn(std::move(workFn))
+    , type{type}
 {
 }
 
 JobPoolPerf::JobPoolPerf(size_t maxThreads)
     : _threadsAmount{std::min<std::size_t>(maxThreads, std::thread::hardware_concurrency())}
-    , _tasksQueues(_threadsAmount)
-    , _condsLaunchThread(_threadsAmount)
-    , _mutexes(_threadsAmount)
+    , _threadsQueues(_threadsAmount)
 {
     for (size_t threadIdx = 0; threadIdx < _threadsAmount; threadIdx++)
     {
@@ -32,14 +31,8 @@ JobPoolPerf::JobPoolPerf(size_t maxThreads)
 
 JobPoolPerf::~JobPoolPerf()
 {
-    _shouldStop = true;
-
-    for (auto threadIdx = 0U; threadIdx != _threadsAmount; ++threadIdx)
-    {
-        unique_lock lock(_mutexes.at(threadIdx));
-        _condsLaunchThread.at(threadIdx).notify_one();
-    }
-
+    AddTerminations();
+    Join();
     for (auto& th : _threads)
     {
         assert(th.joinable() != false);
@@ -47,44 +40,58 @@ JobPoolPerf::~JobPoolPerf()
     }
 }
 
-void JobPoolPerf::AddTask(std::function<void()> workFn)
+void JobPoolPerf::AddTask(std::function<bool()> workFn)
 {
     if(_tasksQueuesIdx == _threadsAmount)
     {
         _tasksQueuesIdx = 0;
     }
-    _tasksQueues.at(_tasksQueuesIdx).emplace_back(std::move(workFn));
-    _tasksLeft++;
 
+    _threadsQueues.at(_tasksQueuesIdx).queue.emplace_back(std::move(workFn), TaskData::Type::Task);
     _tasksQueuesIdx++;
+}
+
+void JobPoolPerf::AddTerminations()
+{
+    for(auto& queue : _threadsQueues) {
+        queue.queue.emplace_back([]{ return true; }, TaskData::Type::Termination);
+    }
 }
 
 void JobPoolPerf::Join()
 {
     // Start threads
-    for (auto threadIdx = 0U; threadIdx < _threadsAmount; ++threadIdx)
-    {
-        std::scoped_lock lock(_mutexes.at(threadIdx));
-        _condsLaunchThread.at(threadIdx).notify_one();
+    for (auto& threadQueue : _threadsQueues) {
+        threadQueue.launchThread = true;
     }
 
-    while (0 != _tasksLeft) {}
+    for (auto& threadQueue : _threadsQueues) {
+        while (!threadQueue.completedThread.exchange(false)) {
+            static const timespec ns = { 0, 1 };
+            nanosleep(&ns, nullptr);
+        }
+    }
 }
 
 void JobPoolPerf::ProcessQueue(std::size_t threadIdx)
 {
-    unique_lock lock(_mutexes.at(threadIdx));
-    do
-    {
-        _condsLaunchThread.at(threadIdx).wait(lock);
-        while (!_tasksQueues.at(threadIdx).empty())
-        {
-            auto taskData = _tasksQueues.at(threadIdx).front();
-            _tasksQueues.at(threadIdx).pop_front();
-
-            taskData.WorkFn();
-            _tasksLeft--;
+    auto& threadQueue = _threadsQueues.at(threadIdx);
+    bool should_stop = false;
+    while (!should_stop) {
+        // Wait for signal to start processing
+        while (!threadQueue.launchThread.exchange(false)) {
+            static const timespec ns = { 0, 1 };
+            nanosleep(&ns, nullptr);
         }
-        _threadCompleted.notify_one();
-    } while (!_shouldStop);
+
+        // Process all elements in queue
+        while (!threadQueue.queue.empty()) {
+            auto taskData = threadQueue.queue.front();
+            threadQueue.queue.pop_front();
+            should_stop = taskData.WorkFn();
+        }
+
+        // Notify that processing is done
+        threadQueue.completedThread = true;
+    }
 }
